@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { CiLogout } from "react-icons/ci";
 import { SignedIn, SignedOut, SignOutButton, useUser } from "@clerk/nextjs";
+import WalletButton from "./WalletButton";
 
 const navItems = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
@@ -84,11 +85,13 @@ const Header = () => {
               <Button
                 variant="ghost"
                 size="icon"
-                className="relative group hover:bg-gray-800/50 rounded-xl transition-colors duration-100"
+                className="relative h-10 w-10 rounded-full hover:bg-zinc-800/60 transition-colors duration-150"
               >
-                <Bell className="h-5 w-5 text-gray-300 group-hover:text-[#14f195] transition-colors" />
-                <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full bg-[#14f195]" />
+                <Bell className="h-5 w-5 text-zinc-300 group-hover:text-[#14f195] transition-colors" />
+                <span className="absolute right-1 top-1 h-2.5 w-2.5 rounded-full ring-2 ring-black bg-[#14f195]" />
               </Button>
+
+              <WalletButton />
 
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>

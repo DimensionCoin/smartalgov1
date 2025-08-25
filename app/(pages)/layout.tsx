@@ -1,18 +1,20 @@
+// app/(pages)/layout.tsx
 import type React from "react";
 import type { Metadata } from "next";
 import { Exo, Rajdhani } from "next/font/google";
 import "../globals.css";
+import "@solana/wallet-adapter-react-ui/styles.css"; // ✅ moved here
 import { Toaster } from "react-hot-toast";
 import Header from "@/components/page/Header";
 import { ClerkProvider } from "@clerk/nextjs";
 import { UserProvider } from "@/providers/UserProvider";
+import AppWalletProvider from "@/providers/WalletProvider";
 
 const exo = Exo({
   variable: "--font-exo",
   subsets: ["latin"],
   display: "swap",
 });
-
 const rajdhani = Rajdhani({
   variable: "--font-rajdhani",
   subsets: ["latin"],
@@ -27,23 +29,25 @@ export const metadata: Metadata = {
 
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode;
-}>) {
+}) {
   return (
     <html
       lang="en"
       className={`${exo.variable} ${rajdhani.variable} antialiased`}
     >
-      <ClerkProvider>
-        <UserProvider>
-          <body className="bg-black text-white">
-            <Toaster position="top-right" reverseOrder={false} />
-            <Header />
-            {children}
-          </body>
-        </UserProvider>
-      </ClerkProvider>
+      <body className="bg-black text-white">
+        <ClerkProvider>
+          <UserProvider>
+            <AppWalletProvider>
+              <Toaster position="top-right" reverseOrder={false} />
+              <Header />
+              {children}
+            </AppWalletProvider>
+          </UserProvider>
+        </ClerkProvider>
+      </body>
     </html>
   );
 }

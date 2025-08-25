@@ -18,12 +18,13 @@ export type UserDTO = {
   email: string;
   firstName: string;
   lastName: string;
-  username?: string | null; // ← added so the client can read it
+  username?: string | null;
   subscriptionTier: "free" | "basic";
   customerId: string;
   credits: number;
   topCoins: string[];
   creditHistory: CreditHistoryEntryDTO[];
+  solanaWallet: string; // ← added
   createdAt: string; // ISO
   updatedAt: string; // ISO
 };
@@ -38,6 +39,7 @@ export type CreateUserInput = {
   customerId?: string;
   credits?: number; // optional; schema default is 10
   username?: string | null; // optional; usually set later from profile
+  // solanaWallet?: string | null; // optional — usually set via setSolanaWallet()
 };
 
 /** Helper: cast JSON.parse(JSON.stringify(...)) to DTO */
@@ -49,8 +51,7 @@ function toDTO<T>(doc: unknown): T {
  * Create (or fetch) a user by clerkId. Safe for webhook retries.
  * - Keeps email/name in sync with Clerk on every call.
  * - Inserts defaults on first run.
- * - If a username is provided (usually not at creation), we set both
- *   `username` and `usernameLower`, but collisions will surface as 11000.
+ * - If a username is provided, sets both username and usernameLower.
  */
 export async function createUser(user: CreateUserInput): Promise<UserDTO> {
   await connect();
@@ -78,7 +79,7 @@ export async function createUser(user: CreateUserInput): Promise<UserDTO> {
         customerId: user.customerId ?? "",
         credits: user.credits ?? undefined, // let schema default apply if undefined
         topCoins: [],
-        // everything else in the schema has defaults already
+        // everything else in the schema has defaults already (incl. solanaWallet="")
       },
     },
     { upsert: true, new: true, setDefaultsOnInsert: true }
@@ -186,7 +187,7 @@ export async function updateUserTopCoins(
 }
 
 /* -----------------------------
-   Username helpers (new)
+   Username helpers
 ----------------------------- */
 
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,20}$/;
@@ -212,10 +213,6 @@ const RESERVED = new Set([
   "news",
 ]);
 
-/**
- * Check if a username is valid and available (case-insensitive).
- * Use this for live "availability" checks on the client.
- */
 export async function isUsernameAvailable(
   desiredRaw: string
 ): Promise<{ ok: boolean; reason?: string }> {
@@ -237,12 +234,8 @@ export async function isUsernameAvailable(
   return { ok: true };
 }
 
-/**
- * Set or change the current user's username.
- * - Enforces case-insensitive uniqueness via the usernameLower unique index.
- * - Returns the updated user (DTO).
- * - On collision, throws with a friendly message.
- */
+type MongoDupErr = { code?: number; keyPattern?: Record<string, unknown> };
+
 export async function setUsername(
   clerkId: string,
   desiredRaw: string
@@ -268,14 +261,83 @@ export async function setUsername(
     );
     if (!updated) throw new Error("User not found");
     return toDTO<UserDTO>(updated);
-  } catch (err: any) {
-    // Handle duplicate key error from unique index on usernameLower
+  } catch (err: unknown) {
+    const e = err as MongoDupErr;
     if (
-      err?.code === 11000 &&
-      (err?.keyPattern?.usernameLower || err?.keyPattern?.username)
+      e?.code === 11000 &&
+      (e.keyPattern?.usernameLower || e.keyPattern?.username)
     ) {
       throw new Error("That username is taken.");
     }
     throw err;
   }
+}
+
+/* -----------------------------
+   Solana wallet helpers (new)
+----------------------------- */
+
+// Same regex used in the model: base58 (no 0,O,I,l), 43–44 chars.
+const SOLANA_BASE58_RE = /^[1-9A-HJ-NP-Za-km-z]{43,44}$/;
+
+/** Validate a Solana address format */
+function isValidSolAddress(addr: string): boolean {
+  return SOLANA_BASE58_RE.test(addr);
+}
+
+/** Get current wallet (string, may be empty) */
+export async function getSolanaWallet(clerkId: string): Promise<string> {
+  await connect();
+  const user = await User.findOne({ clerkId }, { solanaWallet: 1, _id: 0 });
+  if (!user) throw new Error("User not found");
+  return user.solanaWallet ?? "";
+}
+
+/**
+ * Set/update the user's Solana wallet.
+ * - Validates base58 format and length.
+ * - Enforces unique claim via unique sparse index.
+ * - On duplicate, throws "That wallet is already connected by another user."
+ */
+export async function setSolanaWallet(
+  clerkId: string,
+  addressRaw: string
+): Promise<UserDTO> {
+  await connect();
+
+  const address = (addressRaw || "").trim();
+  if (!isValidSolAddress(address)) {
+    throw new Error("Invalid Solana address format.");
+  }
+
+  try {
+    const updated = await User.findOneAndUpdate(
+      { clerkId },
+      { $set: { solanaWallet: address } },
+      { new: true }
+    );
+    if (!updated) throw new Error("User not found");
+    return toDTO<UserDTO>(updated);
+  } catch (err: unknown) {
+    const e = err as MongoDupErr;
+    if (e?.code === 11000 && e.keyPattern?.solanaWallet) {
+      throw new Error("That wallet is already connected by another user.");
+    }
+    throw err;
+  }
+}
+
+/**
+ * Clear (disconnect) the user's Solana wallet.
+ * - Sets the field to empty string so the sparse unique index doesn't collide.
+ */
+export async function clearSolanaWallet(clerkId: string): Promise<UserDTO> {
+  await connect();
+  const updated = await User.findOneAndUpdate(
+    { clerkId },
+    { $set: { solanaWallet: "" } },
+    { new: true }
+  );
+  if (!updated) throw new Error("User not found");
+  return toDTO<UserDTO>(updated);
 }
